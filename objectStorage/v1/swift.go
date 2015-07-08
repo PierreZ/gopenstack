@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Toorop/gopenstack"
 	"io"
 	"net/url"
 	"os"
@@ -13,20 +12,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Toorop/gopenstack"
 )
 
-// A swift is a high-level representation of the openstack object storage service
-type swift struct {
+// A Swift is a high-level representation of the openstack object storage service
+type Swift struct {
 	client *gopenstack.Client
 }
 
 // NewObjectStoragesPath return an osPath
-func NewSwift(client *gopenstack.Client) *swift {
-	return &swift{client}
+func NewSwift(client *gopenstack.Client) *Swift {
+	return &Swift{client}
 }
 
 // CreateContainer create a container if it doesn't exists
-func (s *swift) AddContainer(container string) (err error) {
+func (s *Swift) AddContainer(container string) (err error) {
 	resp, err := s.client.Call(&gopenstack.CallOptions{
 		Method:    "HEAD",
 		Ressource: url.QueryEscape(container),
@@ -35,18 +36,26 @@ func (s *swift) AddContainer(container string) (err error) {
 	if err = resp.HandleErr(err, []int{200, 204, 404}); err != nil {
 		return
 	}
+
 	// 404 not present
 	if resp.StatusCode == 404 {
-		_, err = s.client.Call(&gopenstack.CallOptions{
+		// Headers
+		headers := make(map[string]string)
+		headers["X-Container-Read"] = ".r:*"
+		headers["X-Container-Meta-Web-Index"] = "index.html"
+		resp, err = s.client.Call(&gopenstack.CallOptions{
 			Method:    "PUT",
 			Ressource: url.QueryEscape(container),
 		})
+		fmt.Println("resp is: ", resp)
+		fmt.Println("err is: ", err)
 	}
+
 	return
 }
 
 // ListContainers returns containers
-func (s *swift) ListContainers() (containers []container, err error) {
+func (s *Swift) ListContainers() (containers []container, err error) {
 	resp, err := s.client.Call(&gopenstack.CallOptions{
 		Method:    "GET",
 		Ressource: "?format=json",
@@ -59,7 +68,7 @@ func (s *swift) ListContainers() (containers []container, err error) {
 }
 
 // DownloadObject download and save to dest, src object
-func (s *swift) DownloadObject(src, dest string) error {
+func (s *Swift) DownloadObject(src, dest string) error {
 	// Create local folder if needed
 	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
 		return err
@@ -87,7 +96,7 @@ func (s *swift) DownloadObject(src, dest string) error {
 }
 
 // GetAndStore recursively gets objects from srcPath and write them under destPath
-func (s *swift) DownloadPath(srcPath, destPath string) error {
+func (s *Swift) DownloadPath(srcPath, destPath string) error {
 
 	// we must have a container specified
 	if srcPath == "" || srcPath == "/" {
@@ -213,7 +222,7 @@ func (s *swift) DownloadPath(srcPath, destPath string) error {
 
 // Put upload a file to storage
 // If the file exists (with the same etag) PutFile does not reupload it
-func (s *swift) PutFile(src, dest string) (err error) {
+func (s *Swift) PutFile(src, dest string) (err error) {
 	//fmt.Println(src + "->" + dest)
 
 	// we must have a conatainer specified
@@ -224,10 +233,10 @@ func (s *swift) PutFile(src, dest string) (err error) {
 	}
 
 	// Create container if needed
-	dPath := NewOsPath(s.client, dest)
-	if err = s.AddContainer(dPath.GetContainer()); err != nil {
-		return err
-	}
+	// dPath := NewOsPath(s.client, dest)
+	// if err = s.AddContainer(dPath.GetContainer()); err != nil {
+	// 	return err
+	// }
 
 	bodyReader, err := os.Open(src)
 	if err != nil {
@@ -277,12 +286,12 @@ func (s *swift) PutFile(src, dest string) (err error) {
 }
 
 // Put recursively upload files under srcPath to destPath
-func (s *swift) Put(srcPath, destPath string) error {
+func (s *Swift) Put(srcPath, destPath string) error {
 	srcPath, err := filepath.Abs(filepath.Clean(srcPath))
 	if err != nil {
 		return err
 	}
-	//fmt.Println(srcPath + " -> " + destPath)
+	fmt.Println(srcPath + " -> " + destPath)
 	if strings.HasSuffix(destPath, "/") {
 		destPath = destPath[:len(destPath)-1]
 	}
@@ -355,11 +364,15 @@ func (s *swift) Put(srcPath, destPath string) error {
 			break
 		}
 		go func(p string) {
-			destination := destPath + "/"
+
+			destination := "/"
+
 			if !strings.HasSuffix(srcPath, "/") {
 				destination += ps[len(ps)-1]
 			}
+
 			destination += p[len(srcPath):]
+
 			err = s.PutFile(p, destination)
 			if err != nil {
 				threadsCount--
@@ -381,7 +394,7 @@ func (s *swift) Put(srcPath, destPath string) error {
 // local path to remote path
 // remote path to local path
 // remote path to remote path (not yet)
-func (s *swift) Copy(srcPath, destPath string) error {
+func (s *Swift) Copy(srcPath, destPath string) error {
 	srcIsLocal := true
 	destIsLocal := true
 	if _, err := os.Stat(srcPath); err != nil {
@@ -406,7 +419,7 @@ func (s *swift) Copy(srcPath, destPath string) error {
 }
 
 // DeleteObject delete object with path path
-func (s *swift) DeleteObject(path string) error {
+func (s *Swift) DeleteObject(path string) error {
 	resp, err := s.client.Call(&gopenstack.CallOptions{
 		Method:    "DELETE",
 		Ressource: escapePath(path),
@@ -415,7 +428,7 @@ func (s *swift) DeleteObject(path string) error {
 }
 
 // DeletePath delete path & his children (helper)
-func (s *swift) DeletePath(path string) error {
+func (s *Swift) DeletePath(path string) error {
 	var err error
 	hasTrailingSlash := false
 	objectToremovePaths := []string{}
